@@ -59,6 +59,15 @@ def save_search_transaction(
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
+        # Defensively ensure user exists in users table to prevent Foreign Key Error (1452)
+        cursor.execute("SELECT user_id FROM users WHERE user_id = %s", (user_id,))
+        if not cursor.fetchone():
+            cursor.execute(
+                "INSERT INTO users (user_id, name, email) VALUES (%s, %s, %s) "
+                "ON DUPLICATE KEY UPDATE name = VALUES(name)",
+                (user_id, "Candidate Profile", f"candidate_{user_id}@example.com"),
+            )
+
         # 1. Record search query
         cursor.execute(
             """
@@ -224,6 +233,13 @@ def get_search_results_by_id(search_id: int, user_id: int) -> list[dict[str, Any
 def toggle_save_job(user_id: int, job_id: int) -> bool:
     """Toggle a bookmark for the selected user profile. Returns True if now saved, False if removed."""
     with get_db_cursor(commit=True) as (conn, cursor):
+        cursor.execute("SELECT user_id FROM users WHERE user_id = %s", (user_id,))
+        if not cursor.fetchone():
+            cursor.execute(
+                "INSERT INTO users (user_id, name, email) VALUES (%s, %s, %s) "
+                "ON DUPLICATE KEY UPDATE name = VALUES(name)",
+                (user_id, "Candidate Profile", f"candidate_{user_id}@example.com"),
+            )
         cursor.execute(
             "SELECT saved_job_id FROM saved_jobs WHERE user_id = %s AND job_id = %s",
             (user_id, job_id),

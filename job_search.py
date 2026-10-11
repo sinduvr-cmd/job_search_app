@@ -30,20 +30,27 @@ is_db_connected, db_status_msg = test_db_connection()
 if is_db_connected:
     init_db_schema()
 
-# Initialize default demo profile in session state if not present
-if "current_user" not in st.session_state:
-    if is_db_connected:
-        try:
+# Ensure active user profile is valid and synced with database
+if is_db_connected:
+    try:
+        cached_user = st.session_state.get("current_user")
+        email = cached_user.get("email", "sindhu@example.com") if isinstance(cached_user, dict) else "sindhu@example.com"
+        name = cached_user.get("name", "Sindhu Suraj") if isinstance(cached_user, dict) else "Sindhu Suraj"
+        if not cached_user or cached_user.get("name") == "Guest Candidate":
             existing = list_all_users()
             if existing:
                 st.session_state["current_user"] = existing[0]
             else:
-                demo_user = get_or_create_user(name="Sindhu Suraj", email="sindhu@example.com")
-                st.session_state["current_user"] = demo_user
-        except Exception:
+                st.session_state["current_user"] = get_or_create_user(name=name, email=email)
+        else:
+            db_user = get_or_create_user(name=name, email=email)
+            st.session_state["current_user"] = db_user
+    except Exception:
+        if "current_user" not in st.session_state:
             st.session_state["current_user"] = {"user_id": 1, "name": "Sindhu Suraj", "email": "sindhu@example.com"}
-    else:
-        st.session_state["current_user"] = {"user_id": 1, "name": "Guest Candidate", "email": "candidate@example.com"}
+else:
+    if "current_user" not in st.session_state:
+        st.session_state["current_user"] = {"user_id": 1, "name": "Sindhu Suraj", "email": "sindhu@example.com"}
 
 current_user = st.session_state["current_user"]
 
