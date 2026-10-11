@@ -29,16 +29,24 @@ def render_search_view(current_user: dict[str, Any]) -> None:
     with st.expander("ℹ️ Data Source & Geographic Coverage Notice", expanded=False):
         st.info(f"**Provider**: {PROVIDER_NAME} API\n\n{GEOGRAPHIC_COVERAGE}")
 
-    # Initialize skill query in session state if missing
+    # Initialize skill query in session state if missing (starts empty by default)
     if "skill_input_val" not in st.session_state:
-        st.session_state["skill_input_val"] = "Python, SQL"
+        st.session_state["skill_input_val"] = ""
     if "location_input_val" not in st.session_state:
         st.session_state["location_input_val"] = ""
     if "remote_only_val" not in st.session_state:
         st.session_state["remote_only_val"] = False
 
     # Suggested Skill Chips
-    st.markdown("**Quick Add Skills:**")
+    col_chip_hdr, col_chip_clear = st.columns([5, 1])
+    with col_chip_hdr:
+        st.markdown("**Quick Add Skills:**")
+    with col_chip_clear:
+        if st.session_state.get("skill_input_val"):
+            if st.button("✕ Clear", key="btn_clear_skills", help="Clear entered skills", use_container_width=True):
+                st.session_state["skill_input_val"] = ""
+                st.rerun()
+
     chip_cols = st.columns(len(SUGGESTED_SKILLS))
     for idx, skill_chip in enumerate(SUGGESTED_SKILLS):
         if chip_cols[idx].button(f"+ {skill_chip}", key=f"chip_{skill_chip}", use_container_width=True):
