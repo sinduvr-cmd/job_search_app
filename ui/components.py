@@ -173,27 +173,24 @@ def render_hero_banner(title: str = "Find Your Next Opportunity", subtitle: str 
             "Explore genuine job postings from Arbeitnow, scored with deterministic "
             "skill and location matching and persisted in local MySQL."
         )
-    st.markdown(
-        f"""
-        <div class="hero-banner">
-            <h1>✦ {html.escape(title)}</h1>
-            <p>{html.escape(subtitle)}</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    banner_html = (
+        f'<div class="hero-banner">'
+        f'<h1>✦ {html.escape(title)}</h1>'
+        f'<p>{html.escape(subtitle)}</p>'
+        f'</div>'
     )
+    st.markdown(banner_html, unsafe_allow_html=True)
 
 
 def render_metric_card(col: Any, label: str, value: Any, subtext: str = "") -> None:
     """Render a clean metric box inside a Streamlit column."""
     with col:
-        st.markdown(
-            f"""
-            <div class="metric-card">
-                <div class="metric-label">{html.escape(label)}</div>
-                <div class="metric-value">{html.escape(str(value))}</div>
-                {f'<div style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.25rem;">{html.escape(subtext)}</div>' if subtext else ''}
-            </div>
-            """,
-            unsafe_allow_html=True,
+        subtext_html = f'<div style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.25rem;">{html.escape(subtext)}</div>' if subtext else ''
+        card_html = (
+            f'<div class="metric-card">'
+            f'<div class="metric-label">{html.escape(label)}</div>'
+            f'<div class="metric-value">{html.escape(str(value))}</div>'
+            f'{subtext_html}'
+            f'</div>'
         )
+        st.markdown(card_html, unsafe_allow_html=True)

@@ -294,29 +294,28 @@ def render_job_card(
     job_id = job.get("job_id")
 
     with st.container():
-        st.markdown(
-            f"""
-            <div class="job-card">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
-                    <div>
-                        <span class="badge-rank">#{rank_pos}</span>
-                        <span class="badge-match" style="margin-left: 0.4rem;">{score:.0f}% Match</span>
-                        {f'<span class="badge-remote" style="margin-left: 0.4rem;">🌐 Remote</span>' if is_remote else ''}
-                    </div>
-                    <div style="font-size: 0.8rem; color: #94a3b8; font-weight: 500;">
-                        Posted: {html.escape(posted_date)}
-                    </div>
-                </div>
-                <h3 style="margin: 0.2rem 0; color: #1e1b4b; font-size: 1.25rem; font-weight: 700;">
-                    {html.escape(title)}
-                </h3>
-                <div style="color: #475569; font-weight: 600; font-size: 0.95rem; margin-bottom: 0.5rem;">
-                    🏢 {html.escape(company)} &nbsp;·&nbsp; 📍 {html.escape(location)} &nbsp;·&nbsp; 💰 {html.escape(salary)}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        remote_badge = f'<span class="badge-remote" style="margin-left: 0.4rem;">🌐 Remote</span>' if is_remote else ''
+        card_html = (
+            f'<div class="job-card">'
+            f'<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">'
+            f'<div>'
+            f'<span class="badge-rank">#{rank_pos}</span>'
+            f'<span class="badge-match" style="margin-left: 0.4rem;">{score:.0f}% Match</span>'
+            f'{remote_badge}'
+            f'</div>'
+            f'<div style="font-size: 0.8rem; color: #94a3b8; font-weight: 500;">'
+            f'Posted: {html.escape(posted_date)}'
+            f'</div>'
+            f'</div>'
+            f'<h3 style="margin: 0.2rem 0; color: #1e1b4b; font-size: 1.25rem; font-weight: 700;">'
+            f'{html.escape(title)}'
+            f'</h3>'
+            f'<div style="color: #475569; font-weight: 600; font-size: 0.95rem; margin-bottom: 0.5rem;">'
+            f'🏢 {html.escape(company)} &nbsp;·&nbsp; 📍 {html.escape(location)} &nbsp;·&nbsp; 💰 {html.escape(salary)}'
+            f'</div>'
+            f'</div>'
         )
+        st.markdown(card_html, unsafe_allow_html=True)
 
         # Skill Badges
         tags = job.get("tags") or []

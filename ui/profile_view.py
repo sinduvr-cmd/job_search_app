@@ -18,20 +18,18 @@ def render_profile_view() -> None:
 
     # Current profile card
     if current_user:
-        st.markdown(
-            f"""
-            <div class="metric-card" style="text-align: left; margin-bottom: 1.5rem;">
-                <div class="metric-label">Active Candidate Profile</div>
-                <div style="font-size: 1.35rem; font-weight: 700; color: #1e1b4b; margin: 0.25rem 0;">
-                    {current_user['name']}
-                </div>
-                <div style="color: #64748b; font-size: 0.95rem;">
-                    📧 {current_user['email']} &nbsp;·&nbsp; ID: #{current_user['user_id']}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        profile_card_html = (
+            f'<div class="metric-card" style="text-align: left; margin-bottom: 1.5rem;">'
+            f'<div class="metric-label">Active Candidate Profile</div>'
+            f'<div style="font-size: 1.35rem; font-weight: 700; color: #1e1b4b; margin: 0.25rem 0;">'
+            f'{current_user["name"]}'
+            f'</div>'
+            f'<div style="color: #64748b; font-size: 0.95rem;">'
+            f'📧 {current_user["email"]} &nbsp;·&nbsp; ID: #{current_user["user_id"]}'
+            f'</div>'
+            f'</div>'
         )
+        st.markdown(profile_card_html, unsafe_allow_html=True)
 
     col_switch, col_create = st.columns(2)
 

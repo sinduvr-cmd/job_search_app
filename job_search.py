@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import html
 import streamlit as st
 
 from database.connection import test_db_connection, init_db_schema, get_db_config
@@ -59,16 +60,14 @@ with st.sidebar:
     st.markdown("### ✦ Career Compass")
     
     # Active Profile Pill
-    st.markdown(
-        f"""
-        <div class="profile-pill">
-            <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 700;">Active Profile</div>
-            <div style="font-weight: 700; color: #1e1b4b; font-size: 1.05rem; margin-top: 2px;">{current_user['name']}</div>
-            <div style="color: #64748b; font-size: 0.8rem;">{current_user['email']}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    pill_html = (
+        f'<div class="profile-pill">'
+        f'<div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 700;">Active Profile</div>'
+        f'<div style="font-weight: 700; color: #1e1b4b; font-size: 1.05rem; margin-top: 2px;">{html.escape(current_user["name"])}</div>'
+        f'<div style="color: #64748b; font-size: 0.8rem;">{html.escape(current_user["email"])}</div>'
+        f'</div>'
     )
+    st.markdown(pill_html, unsafe_allow_html=True)
 
     nav_choice = st.radio(
         "Navigation",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, date
+import time
 from typing import Any
 import mysql.connector
 
@@ -55,127 +56,143 @@ def save_search_transaction(
 ) -> int:
     """Store every submitted search and its ranked results in a single atomic transaction.
     Upserts jobs, prevents duplicate skills/mappings, and rolls back cleanly on any failure.
+    Automatically retries on InnoDB deadlocks (Code 1213) as recommended by MySQL.
     """
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    try:
-        # Defensively ensure user exists in users table to prevent Foreign Key Error (1452)
-        cursor.execute("SELECT user_id FROM users WHERE user_id = %s", (user_id,))
-        if not cursor.fetchone():
-            cursor.execute(
-                "INSERT INTO users (user_id, name, email) VALUES (%s, %s, %s) "
-                "ON DUPLICATE KEY UPDATE name = VALUES(name)",
-                (user_id, "Candidate Profile", f"candidate_{user_id}@example.com"),
-            )
-
-        # 1. Record search query
-        cursor.execute(
-            """
-            INSERT INTO searches (user_id, skill_query, location, remote_only)
-            VALUES (%s, %s, %s, %s)
-            """,
-            (user_id, skill_query.strip(), location.strip(), bool(remote_only)),
-        )
-        search_id = cursor.lastrowid
-
-        # 2. Process each ranked job
-        for rank_pos, item in enumerate(ranked_jobs, start=1):
-            job_data = item.get("job", item)
-            score = float(item.get("relevance_score", item.get("score", 0.0)))
-            external_id = str(job_data.get("external_job_id") or "")
-            if not external_id:
-                slug = job_data.get("slug") or job_data.get("url") or f"{job_data.get('title')}-{job_data.get('company_name')}"
-                external_id = f"arbeitnow_{slug}"
-
-            title = str(job_data.get("title") or "Untitled Role")[:255]
-            company = str(job_data.get("company_name") or job_data.get("company") or "Unknown Company")[:255]
-            job_loc = str(job_data.get("location") or "")[:255]
-            is_remote = bool(job_data.get("remote"))
-            category = str(job_data.get("category") or ", ".join(job_data.get("tags", [])[:3]))[:100]
-            salary = str(job_data.get("salary") or "")[:255]
-            url = str(job_data.get("url") or "")
-            description = str(job_data.get("description") or "")
-            
-            posted_date_val = job_data.get("posted_date")
-            if not posted_date_val and job_data.get("created_at"):
-                ts = job_data.get("created_at")
-                if isinstance(ts, (int, float)):
-                    posted_date_val = datetime.fromtimestamp(ts).date()
-                elif isinstance(ts, str):
-                    try:
-                        posted_date_val = datetime.fromisoformat(ts[:10]).date()
-                    except ValueError:
-                        posted_date_val = None
-
-            # Upsert job
-            cursor.execute(
-                """
-                INSERT INTO jobs (external_job_id, title, company, location, remote, category, salary, url, description, posted_date)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    title = VALUES(title),
-                    company = VALUES(company),
-                    location = VALUES(location),
-                    remote = VALUES(remote),
-                    category = VALUES(category),
-                    salary = VALUES(salary),
-                    url = VALUES(url),
-                    description = VALUES(description),
-                    posted_date = VALUES(posted_date)
-                """,
-                (external_id, title, company, job_loc, is_remote, category, salary, url, description, posted_date_val),
-            )
-
-            # Retrieve database job_id
-            cursor.execute("SELECT job_id FROM jobs WHERE external_job_id = %s", (external_id,))
-            job_row = cursor.fetchone()
-            if not job_row:
-                raise RuntimeError(f"Could not retrieve job_id for external ID: {external_id}")
-            job_id = job_row["job_id"]
-
-            # Process skill tags
-            tags = job_data.get("tags") or []
-            if isinstance(tags, str):
-                tags = [t.strip() for t in tags.split(",") if t.strip()]
-
-            for tag in tags:
-                tag_clean = str(tag).strip()[:100]
-                if not tag_clean:
-                    continue
-                # Insert skill if not exists
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Defensively ensure user exists in users table to prevent Foreign Key Error (1452)
+            cursor.execute("SELECT user_id FROM users WHERE user_id = %s", (user_id,))
+            if not cursor.fetchone():
                 cursor.execute(
-                    "INSERT IGNORE INTO skills (skill_name) VALUES (%s)",
-                    (tag_clean,),
+                    "INSERT INTO users (user_id, name, email) VALUES (%s, %s, %s) "
+                    "ON DUPLICATE KEY UPDATE name = VALUES(name)",
+                    (user_id, "Candidate Profile", f"candidate_{user_id}@example.com"),
                 )
-                cursor.execute("SELECT skill_id FROM skills WHERE skill_name = %s", (tag_clean,))
-                skill_row = cursor.fetchone()
-                if skill_row:
-                    skill_id = skill_row["skill_id"]
-                    cursor.execute(
-                        "INSERT IGNORE INTO job_skills (job_id, skill_id) VALUES (%s, %s)",
-                        (job_id, skill_id),
-                    )
 
-            # Insert search_results entry
+            # 1. Record search query
             cursor.execute(
                 """
-                INSERT INTO search_results (search_id, job_id, relevance_score, rank_position)
+                INSERT INTO searches (user_id, skill_query, location, remote_only)
                 VALUES (%s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                    relevance_score = VALUES(relevance_score),
-                    rank_position = VALUES(rank_position)
                 """,
-                (search_id, job_id, score, rank_pos),
+                (user_id, skill_query.strip(), location.strip(), bool(remote_only)),
             )
+            search_id = cursor.lastrowid
 
-        conn.commit()
-        return search_id
-    except Exception as exc:
-        conn.rollback()
-        raise RuntimeError(f"Transaction failed and was rolled back: {sanitize_db_error(exc)}") from exc
-    finally:
-        cursor.close()
-        conn.close()
+            # 2. Process each ranked job
+            for rank_pos, item in enumerate(ranked_jobs, start=1):
+                job_data = item.get("job", item)
+                score = float(item.get("relevance_score", item.get("score", 0.0)))
+                external_id = str(job_data.get("external_job_id") or "")
+                if not external_id:
+                    slug = job_data.get("slug") or job_data.get("url") or f"{job_data.get('title')}-{job_data.get('company_name')}"
+                    external_id = f"arbeitnow_{slug}"
+
+                title = str(job_data.get("title") or "Untitled Role")[:255]
+                company = str(job_data.get("company_name") or job_data.get("company") or "Unknown Company")[:255]
+                job_loc = str(job_data.get("location") or "")[:255]
+                is_remote = bool(job_data.get("remote"))
+                category = str(job_data.get("category") or ", ".join(job_data.get("tags", [])[:3]))[:100]
+                salary = str(job_data.get("salary") or "")[:255]
+                url = str(job_data.get("url") or "")
+                description = str(job_data.get("description") or "")
+                
+                posted_date_val = job_data.get("posted_date")
+                if not posted_date_val and job_data.get("created_at"):
+                    ts = job_data.get("created_at")
+                    if isinstance(ts, (int, float)):
+                        posted_date_val = datetime.fromtimestamp(ts).date()
+                    elif isinstance(ts, str):
+                        try:
+                            posted_date_val = datetime.fromisoformat(ts[:10]).date()
+                        except ValueError:
+                            posted_date_val = None
+
+                # Upsert job
+                cursor.execute(
+                    """
+                    INSERT INTO jobs (external_job_id, title, company, location, remote, category, salary, url, description, posted_date)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        title = VALUES(title),
+                        company = VALUES(company),
+                        location = VALUES(location),
+                        remote = VALUES(remote),
+                        category = VALUES(category),
+                        salary = VALUES(salary),
+                        url = VALUES(url),
+                        description = VALUES(description),
+                        posted_date = VALUES(posted_date)
+                    """,
+                    (external_id, title, company, job_loc, is_remote, category, salary, url, description, posted_date_val),
+                )
+
+                # Retrieve database job_id
+                cursor.execute("SELECT job_id FROM jobs WHERE external_job_id = %s", (external_id,))
+                job_row = cursor.fetchone()
+                if not job_row:
+                    raise RuntimeError(f"Could not retrieve job_id for external ID: {external_id}")
+                job_id = job_row["job_id"]
+
+                # Process skill tags in sorted order to avoid deadlock lock-order conflicts
+                tags = job_data.get("tags") or []
+                if isinstance(tags, str):
+                    tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+                clean_tags = sorted(list({str(t).strip()[:100] for t in tags if str(t).strip()}))
+
+                for tag_clean in clean_tags:
+                    # Insert skill if not exists
+                    cursor.execute(
+                        "INSERT IGNORE INTO skills (skill_name) VALUES (%s)",
+                        (tag_clean,),
+                    )
+                    cursor.execute("SELECT skill_id FROM skills WHERE skill_name = %s", (tag_clean,))
+                    skill_row = cursor.fetchone()
+                    if skill_row:
+                        skill_id = skill_row["skill_id"]
+                        cursor.execute(
+                            "INSERT IGNORE INTO job_skills (job_id, skill_id) VALUES (%s, %s)",
+                            (job_id, skill_id),
+                        )
+
+                # Insert search_results entry
+                cursor.execute(
+                    """
+                    INSERT INTO search_results (search_id, job_id, relevance_score, rank_position)
+                    VALUES (%s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        relevance_score = VALUES(relevance_score),
+                        rank_position = VALUES(rank_position)
+                    """,
+                    (search_id, job_id, score, rank_pos),
+                )
+
+            conn.commit()
+            return search_id
+        except Exception as exc:
+            if conn and conn.is_connected():
+                conn.rollback()
+
+            is_deadlock = False
+            if isinstance(exc, mysql.connector.Error) and getattr(exc, "errno", None) in (1213, 1205):
+                is_deadlock = True
+            elif "1213" in str(exc) or "Deadlock" in str(exc) or "1205" in str(exc):
+                is_deadlock = True
+
+            if is_deadlock and attempt < max_retries:
+                time.sleep(0.3 * attempt)
+                continue
+
+            raise RuntimeError(f"Transaction failed and was rolled back: {sanitize_db_error(exc)}") from exc
+        finally:
+            if cursor is not None:
+                cursor.close()
+            if conn and conn.is_connected():
+                conn.close()
 
 
 def get_user_searches(user_id: int, limit: int = 30) -> list[dict[str, Any]]:
