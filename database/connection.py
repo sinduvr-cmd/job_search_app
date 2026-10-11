@@ -13,29 +13,45 @@ from mysql.connector import errorcode
 load_dotenv(override=True)
 
 
+def get_env_or_secret(key: str, default: str = "") -> str:
+    """Retrieve configuration securely from local environment variables (.env) or Streamlit Cloud secrets."""
+    val = os.getenv(key)
+    if val is not None and val != "":
+        return val
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and key in st.secrets:
+            return str(st.secrets[key])
+    except Exception:
+        pass
+    return default
+
+
 def get_db_config(database: str | None = None) -> dict[str, Any]:
-    """Retrieve database connection parameters from environment variables."""
-    # If DB_NAME not explicitly provided, fall back to environment variable or standard default
-    default_db = os.getenv("DB_NAME", "job_recommendation_db")
+    """Retrieve database connection parameters securely from environment variables or secrets."""
+    # Reload environment variables from .env dynamically on each config request
+    load_dotenv(override=True)
+
+    default_db = get_env_or_secret("DB_NAME", "job_recommendation_db")
     target_db = database if database is not None else default_db
     
-    port_str = os.getenv("DB_PORT", "3306")
+    port_str = get_env_or_secret("DB_PORT", "3306")
     try:
         port = int(port_str)
     except ValueError:
         port = 3306
 
-    timeout_str = os.getenv("DB_TIMEOUT", "10")
+    timeout_str = get_env_or_secret("DB_TIMEOUT", "10")
     try:
         timeout = int(timeout_str)
     except ValueError:
         timeout = 10
 
     cfg: dict[str, Any] = {
-        "host": os.getenv("DB_HOST", "localhost"),
+        "host": get_env_or_secret("DB_HOST", "localhost"),
         "port": port,
-        "user": os.getenv("DB_USER", "root"),
-        "password": os.getenv("DB_PASSWORD", ""),
+        "user": get_env_or_secret("DB_USER", "root"),
+        "password": get_env_or_secret("DB_PASSWORD", ""),
         "database": target_db,
         "charset": "utf8mb4",
         "collation": "utf8mb4_unicode_ci",
@@ -44,10 +60,12 @@ def get_db_config(database: str | None = None) -> dict[str, Any]:
     }
 
     # Cloud database SSL support (Aiven, Railway, AWS RDS, etc.)
-    if os.getenv("DB_SSL_DISABLED", "").lower() in ("true", "1", "yes"):
+    ssl_disabled = get_env_or_secret("DB_SSL_DISABLED", "").lower() in ("true", "1", "yes")
+    if ssl_disabled:
         cfg["ssl_disabled"] = True
-    if os.getenv("DB_SSL_CA"):
-        cfg["ssl_ca"] = os.getenv("DB_SSL_CA")
+    ssl_ca = get_env_or_secret("DB_SSL_CA", "")
+    if ssl_ca:
+        cfg["ssl_ca"] = ssl_ca
 
     return cfg
 
@@ -55,7 +73,15 @@ def get_db_config(database: str | None = None) -> dict[str, Any]:
 def get_db_connection(database: str | None = None) -> mysql.connector.MySQLConnection:
     """Create and return a new MySQL connection. Caller is responsible for closing."""
     config = get_db_config(database=database)
-    return mysql.connector.connect(**config)
+    try:
+        return mysql.connector.connect(**config)
+    except mysql.connector.Error as exc:
+        # If localhost fails with CR_CONN_HOST_ERROR (Windows IPv6 ::1 issue), fallback to 127.0.0.1
+        if exc.errno in (errorcode.CR_CONN_HOST_ERROR, 2003) and config.get("host") == "localhost":
+            fallback_config = dict(config)
+            fallback_config["host"] = "127.0.0.1"
+            return mysql.connector.connect(**fallback_config)
+        raise
 
 
 @contextmanager
