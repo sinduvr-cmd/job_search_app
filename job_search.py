@@ -86,14 +86,12 @@ with st.sidebar:
         st.success(f"● Connected to MySQL\n\n`{db_cfg['host']}:{db_cfg['port']}`\n\nDB: `{db_cfg['database']}`")
     else:
         st.error(f"● Disconnected\n\n{db_status_msg}")
-        if st.button("🔄 Retry Connection", key="btn_retry_conn", use_container_width=True):
-            st.rerun()
-        with st.expander("How to Connect"):
+        with st.expander("Troubleshoot Connection"):
             st.markdown(
                 """
-                1. Open **`.env`** in the project root.
-                2. Set `DB_PASSWORD` to your local MySQL password.
-                3. Click **Retry Connection** above.
+                1. Ensure MySQL Server is running locally.
+                2. Check your `.env` file credentials.
+                3. Open **MySQL Workbench** and execute `sql/schema.sql`.
                 """
             )
 

@@ -15,9 +15,7 @@ load_dotenv(override=True)
 
 def get_db_config(database: str | None = None) -> dict[str, Any]:
     """Retrieve database connection parameters from environment variables."""
-    # Reload environment variables from .env dynamically on each config request
-    load_dotenv(override=True)
-
+    # If DB_NAME not explicitly provided, fall back to environment variable or standard default
     default_db = os.getenv("DB_NAME", "job_recommendation_db")
     target_db = database if database is not None else default_db
     
@@ -27,7 +25,13 @@ def get_db_config(database: str | None = None) -> dict[str, Any]:
     except ValueError:
         port = 3306
 
-    return {
+    timeout_str = os.getenv("DB_TIMEOUT", "10")
+    try:
+        timeout = int(timeout_str)
+    except ValueError:
+        timeout = 10
+
+    cfg: dict[str, Any] = {
         "host": os.getenv("DB_HOST", "localhost"),
         "port": port,
         "user": os.getenv("DB_USER", "root"),
@@ -36,22 +40,22 @@ def get_db_config(database: str | None = None) -> dict[str, Any]:
         "charset": "utf8mb4",
         "collation": "utf8mb4_unicode_ci",
         "autocommit": False,
-        "connection_timeout": 5,
+        "connection_timeout": timeout,
     }
+
+    # Cloud database SSL support (Aiven, Railway, AWS RDS, etc.)
+    if os.getenv("DB_SSL_DISABLED", "").lower() in ("true", "1", "yes"):
+        cfg["ssl_disabled"] = True
+    if os.getenv("DB_SSL_CA"):
+        cfg["ssl_ca"] = os.getenv("DB_SSL_CA")
+
+    return cfg
 
 
 def get_db_connection(database: str | None = None) -> mysql.connector.MySQLConnection:
     """Create and return a new MySQL connection. Caller is responsible for closing."""
     config = get_db_config(database=database)
-    try:
-        return mysql.connector.connect(**config)
-    except mysql.connector.Error as exc:
-        # If localhost fails with CR_CONN_HOST_ERROR (common Windows IPv6 ::1 issue), try 127.0.0.1
-        if exc.errno in (errorcode.CR_CONN_HOST_ERROR, 2003) and config.get("host") == "localhost":
-            fallback_config = dict(config)
-            fallback_config["host"] = "127.0.0.1"
-            return mysql.connector.connect(**fallback_config)
-        raise
+    return mysql.connector.connect(**config)
 
 
 @contextmanager
