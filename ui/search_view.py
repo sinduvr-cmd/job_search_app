@@ -291,7 +291,7 @@ def render_job_card(
     matched_skills = item.get("matched_skills") or []
     missing_skills = item.get("missing_skills") or []
     explanation = item.get("score_explanation") or f"Overall Match: {score:.1f}%"
-    job_id = job.get("job_id")
+    job_id = job.get("job_id") or item.get("job_id")
 
     with st.container():
         remote_badge = f'<span class="badge-remote" style="margin-left: 0.4rem;">🌐 Remote</span>' if is_remote else ''

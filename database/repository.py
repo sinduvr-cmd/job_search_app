@@ -136,6 +136,10 @@ def save_search_transaction(
                 if not job_row:
                     raise RuntimeError(f"Could not retrieve job_id for external ID: {external_id}")
                 job_id = job_row["job_id"]
+                if isinstance(job_data, dict):
+                    job_data["job_id"] = job_id
+                if isinstance(item, dict):
+                    item["job_id"] = job_id
 
                 # Process skill tags in sorted order to avoid deadlock lock-order conflicts
                 tags = job_data.get("tags") or []
