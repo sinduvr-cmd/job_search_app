@@ -86,12 +86,20 @@ with st.sidebar:
         st.success(f"● Connected to MySQL\n\n`{db_cfg['host']}:{db_cfg['port']}`\n\nDB: `{db_cfg['database']}`")
     else:
         st.error(f"● Disconnected\n\n{db_status_msg}")
+        if st.button("🔄 Retry Connection", key="btn_retry_conn", use_container_width=True):
+            st.rerun()
         with st.expander("Troubleshoot Connection"):
             st.markdown(
                 """
-                1. Ensure MySQL Server is running locally.
-                2. Check your `.env` file credentials.
-                3. Open **MySQL Workbench** and execute `sql/schema.sql`.
+                **If viewing on Streamlit Cloud (`*.streamlit.app`):**
+                1. Cloud servers cannot reach `localhost` on your home computer.
+                2. In Streamlit Cloud, click **Settings > Secrets**.
+                3. Paste your cloud MySQL credentials (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`).
+
+                **If running locally on your PC:**
+                1. Run in PowerShell: `streamlit run job_search.py`.
+                2. Set `DB_PASSWORD` in `.env` to your local MySQL password.
+                3. Ensure `MySQL80` service is running in Windows Services.
                 """
             )
 

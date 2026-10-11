@@ -21,8 +21,8 @@ def render_saved_jobs_view(current_user: dict[str, Any]) -> None:
 
     try:
         saved_jobs = get_saved_jobs(current_user["user_id"])
-    except Exception as exc:
-        st.error(f"Could not load saved jobs: {exc}")
+    except Exception:
+        st.warning("⚠️ Database is currently disconnected. Connect MySQL to view and save bookmarks.")
         return
 
     if not saved_jobs:

@@ -17,8 +17,8 @@ def render_analytics_view() -> None:
 
     try:
         metrics = get_analytics_metrics()
-    except Exception as exc:
-        st.error(f"Could not load analytics metrics from MySQL: {exc}")
+    except Exception:
+        st.warning("⚠️ Database is currently disconnected. Connect MySQL to view live database analytics.")
         return
 
     # Top-level Metric KPI Cards

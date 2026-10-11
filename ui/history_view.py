@@ -24,8 +24,8 @@ def render_history_view(current_user: dict[str, Any]) -> None:
 
     try:
         searches = get_user_searches(current_user["user_id"])
-    except Exception as exc:
-        st.error(f"Could not load search history: {exc}")
+    except Exception:
+        st.warning("⚠️ Database is currently disconnected. Connect MySQL to inspect and reload past search history.")
         return
 
     if not searches:

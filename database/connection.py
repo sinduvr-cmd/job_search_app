@@ -116,12 +116,19 @@ def sanitize_db_error(exc: Exception) -> str:
                 "MySQL Access Denied: Incorrect username or password. "
                 "Please verify DB_USER and DB_PASSWORD in your .env file."
             )
-        elif exc.errno == errorcode.CR_CONN_HOST_ERROR or exc.errno == 2003:
-            host = os.getenv("DB_HOST", "localhost")
-            port = os.getenv("DB_PORT", "3306")
+        elif exc.errno in (errorcode.CR_CONN_HOST_ERROR, 2003):
+            host = get_env_or_secret("DB_HOST", "localhost")
+            port = get_env_or_secret("DB_PORT", "3306")
+            if host in ("localhost", "127.0.0.1"):
+                return (
+                    f"Cannot reach MySQL at {host}:{port}.\n\n"
+                    "• If running on Streamlit Cloud (*.streamlit.app): Cloud servers cannot reach your home PC's localhost. "
+                    "Configure cloud database secrets in Streamlit Cloud Settings > Secrets, or run locally on your PC via 'streamlit run job_search.py'.\n\n"
+                    "• If running locally: Ensure MySQL80 is running in Windows Services and DB_PASSWORD in .env is correct."
+                )
             return (
                 f"Cannot connect to MySQL server at {host}:{port}. "
-                "Ensure your local MySQL Server service is running in Windows Services or MySQL Workbench."
+                "Ensure your remote database server is running and port is accessible."
             )
         elif exc.errno == errorcode.ER_BAD_DB_ERROR or exc.errno == 1049:
             db_name = os.getenv("DB_NAME", "job_recommendation_db")
