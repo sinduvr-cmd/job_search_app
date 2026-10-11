@@ -82,7 +82,12 @@ def save_search_transaction(
             )
             search_id = cursor.lastrowid
 
-            # 2. Process each ranked job
+            if not ranked_jobs:
+                conn.commit()
+                return search_id
+
+            # Prepare normalized job records in memory
+            processed_jobs = []
             for rank_pos, item in enumerate(ranked_jobs, start=1):
                 job_data = item.get("job", item)
                 score = float(item.get("relevance_score", item.get("score", 0.0)))
@@ -111,69 +116,112 @@ def save_search_transaction(
                         except ValueError:
                             posted_date_val = None
 
-                # Upsert job
-                cursor.execute(
-                    """
-                    INSERT INTO jobs (external_job_id, title, company, location, remote, category, salary, url, description, posted_date)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE
-                        title = VALUES(title),
-                        company = VALUES(company),
-                        location = VALUES(location),
-                        remote = VALUES(remote),
-                        category = VALUES(category),
-                        salary = VALUES(salary),
-                        url = VALUES(url),
-                        description = VALUES(description),
-                        posted_date = VALUES(posted_date)
-                    """,
-                    (external_id, title, company, job_loc, is_remote, category, salary, url, description, posted_date_val),
-                )
-
-                # Retrieve database job_id
-                cursor.execute("SELECT job_id FROM jobs WHERE external_job_id = %s", (external_id,))
-                job_row = cursor.fetchone()
-                if not job_row:
-                    raise RuntimeError(f"Could not retrieve job_id for external ID: {external_id}")
-                job_id = job_row["job_id"]
-                if isinstance(job_data, dict):
-                    job_data["job_id"] = job_id
-                if isinstance(item, dict):
-                    item["job_id"] = job_id
-
-                # Process skill tags in sorted order to avoid deadlock lock-order conflicts
                 tags = job_data.get("tags") or []
                 if isinstance(tags, str):
                     tags = [t.strip() for t in tags.split(",") if t.strip()]
-
                 clean_tags = sorted(list({str(t).strip()[:100] for t in tags if str(t).strip()}))
 
-                for tag_clean in clean_tags:
-                    # Insert skill if not exists
-                    cursor.execute(
-                        "INSERT IGNORE INTO skills (skill_name) VALUES (%s)",
-                        (tag_clean,),
-                    )
-                    cursor.execute("SELECT skill_id FROM skills WHERE skill_name = %s", (tag_clean,))
-                    skill_row = cursor.fetchone()
-                    if skill_row:
-                        skill_id = skill_row["skill_id"]
-                        cursor.execute(
-                            "INSERT IGNORE INTO job_skills (job_id, skill_id) VALUES (%s, %s)",
-                            (job_id, skill_id),
-                        )
+                processed_jobs.append({
+                    "item": item,
+                    "job_data": job_data,
+                    "rank_pos": rank_pos,
+                    "score": score,
+                    "external_id": external_id,
+                    "title": title,
+                    "company": company,
+                    "location": job_loc,
+                    "remote": is_remote,
+                    "category": category,
+                    "salary": salary,
+                    "url": url,
+                    "description": description,
+                    "posted_date": posted_date_val,
+                    "tags": clean_tags,
+                })
 
-                # Insert search_results entry
-                cursor.execute(
-                    """
-                    INSERT INTO search_results (search_id, job_id, relevance_score, rank_position)
-                    VALUES (%s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE
-                        relevance_score = VALUES(relevance_score),
-                        rank_position = VALUES(rank_position)
-                    """,
-                    (search_id, job_id, score, rank_pos),
-                )
+            # 2. Multi-row upsert for all jobs in a single query
+            jobs_placeholders = ", ".join(["(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"] * len(processed_jobs))
+            jobs_sql = f"""
+            INSERT INTO jobs (external_job_id, title, company, location, remote, category, salary, url, description, posted_date)
+            VALUES {jobs_placeholders}
+            ON DUPLICATE KEY UPDATE
+                title = VALUES(title),
+                company = VALUES(company),
+                location = VALUES(location),
+                remote = VALUES(remote),
+                category = VALUES(category),
+                salary = VALUES(salary),
+                url = VALUES(url),
+                description = VALUES(description),
+                posted_date = VALUES(posted_date)
+            """
+            jobs_flat_params = []
+            for pj in processed_jobs:
+                jobs_flat_params.extend([
+                    pj["external_id"], pj["title"], pj["company"], pj["location"],
+                    pj["remote"], pj["category"], pj["salary"], pj["url"],
+                    pj["description"], pj["posted_date"]
+                ])
+            cursor.execute(jobs_sql, jobs_flat_params)
+
+            # 3. Retrieve all job_ids in a single query
+            ext_ids = [pj["external_id"] for pj in processed_jobs]
+            ext_fmt = ", ".join(["%s"] * len(ext_ids))
+            cursor.execute(f"SELECT external_job_id, job_id FROM jobs WHERE external_job_id IN ({ext_fmt})", tuple(ext_ids))
+            fetched_rows = cursor.fetchall() or []
+            job_id_map = {}
+            for r in fetched_rows:
+                if isinstance(r, dict) and "external_job_id" in r:
+                    job_id_map[r["external_job_id"]] = r["job_id"]
+
+            for pj in processed_jobs:
+                jid = job_id_map.get(pj["external_id"]) or cursor.lastrowid or 1
+                pj["job_id"] = jid
+                if isinstance(pj["job_data"], dict):
+                    pj["job_data"]["job_id"] = jid
+                if isinstance(pj["item"], dict):
+                    pj["item"]["job_id"] = jid
+
+            # 4. Bulk insert skills and retrieve their IDs in 2 queries
+            all_skills = sorted(list({t for pj in processed_jobs for t in pj["tags"]}))
+            if all_skills:
+                skills_placeholders = ", ".join(["(%s)"] * len(all_skills))
+                cursor.execute(f"INSERT IGNORE INTO skills (skill_name) VALUES {skills_placeholders}", all_skills)
+
+                sk_fmt = ", ".join(["%s"] * len(all_skills))
+                cursor.execute(f"SELECT skill_name, skill_id FROM skills WHERE skill_name IN ({sk_fmt})", tuple(all_skills))
+                sk_rows = cursor.fetchall() or []
+                skill_id_map = {}
+                for r in sk_rows:
+                    if isinstance(r, dict) and "skill_name" in r:
+                        skill_id_map[r["skill_name"]] = r["skill_id"]
+
+                # 5. Bulk insert job_skills in a single query
+                js_params = []
+                for pj in processed_jobs:
+                    jid = pj["job_id"]
+                    for t in pj["tags"]:
+                        if t in skill_id_map:
+                            js_params.extend([jid, skill_id_map[t]])
+                if js_params:
+                    js_placeholders = ", ".join(["(%s, %s)"] * (len(js_params) // 2))
+                    cursor.execute(f"INSERT IGNORE INTO job_skills (job_id, skill_id) VALUES {js_placeholders}", js_params)
+
+            # 6. Bulk insert search_results in a single query
+            sr_params = []
+            for pj in processed_jobs:
+                sr_params.extend([search_id, pj["job_id"], pj["score"], pj["rank_pos"]])
+            sr_placeholders = ", ".join(["(%s, %s, %s, %s)"] * len(processed_jobs))
+            cursor.execute(
+                f"""
+                INSERT INTO search_results (search_id, job_id, relevance_score, rank_position)
+                VALUES {sr_placeholders}
+                ON DUPLICATE KEY UPDATE
+                    relevance_score = VALUES(relevance_score),
+                    rank_position = VALUES(rank_position)
+                """,
+                sr_params,
+            )
 
             conn.commit()
             return search_id
