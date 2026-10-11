@@ -14,23 +14,29 @@ load_dotenv(override=True)
 
 
 def get_env_or_secret(key: str, default: str = "") -> str:
-    """Retrieve configuration securely from local environment variables (.env) or Streamlit Cloud secrets."""
-    val = os.getenv(key)
-    if val is not None and val != "":
-        return val
+    """Retrieve configuration securely from Streamlit Cloud secrets or local environment variables (.env)."""
+    # 1. Check Streamlit Cloud secrets first if available
     try:
         import streamlit as st
         if hasattr(st, "secrets") and key in st.secrets:
-            return str(st.secrets[key])
+            secret_val = str(st.secrets[key]).strip()
+            if secret_val:
+                return secret_val
     except Exception:
         pass
+
+    # 2. Check local environment variables (.env)
+    val = os.getenv(key)
+    if val is not None and val.strip() != "":
+        return val.strip()
+
     return default
 
 
 def get_db_config(database: str | None = None) -> dict[str, Any]:
     """Retrieve database connection parameters securely from environment variables or secrets."""
-    # Reload environment variables from .env dynamically on each config request
-    load_dotenv(override=True)
+    # Reload environment variables from .env dynamically on each config request if not already set
+    load_dotenv(override=False)
 
     default_db = get_env_or_secret("DB_NAME", "job_recommendation_db")
     target_db = database if database is not None else default_db
@@ -116,9 +122,15 @@ def sanitize_db_error(exc: Exception) -> str:
                 "MySQL Access Denied: Incorrect username or password. "
                 "Please verify DB_USER and DB_PASSWORD in your .env file."
             )
-        elif exc.errno in (errorcode.CR_CONN_HOST_ERROR, 2003):
+        elif exc.errno in (errorcode.CR_CONN_HOST_ERROR, 2003, 2005):
             host = get_env_or_secret("DB_HOST", "localhost")
             port = get_env_or_secret("DB_PORT", "3306")
+            if exc.errno == 2005:
+                return (
+                    f"MySQL Error (Code 2005): Host '{host}' could not be resolved by DNS yet.\n\n"
+                    "• If you just created this Aiven database, DNS records take 1–3 minutes to propagate worldwide.\n\n"
+                    "• Please click '🔄 Retry Connection' or reboot the app in Streamlit Cloud."
+                )
             if host in ("localhost", "127.0.0.1"):
                 return (
                     f"Cannot reach MySQL at {host}:{port}.\n\n"
@@ -149,7 +161,8 @@ def test_db_connection() -> tuple[bool, str]:
             cursor = conn.cursor()
             cursor.execute("SELECT 1")
             cursor.fetchone()
-            return True, "Connected successfully to local MySQL Server."
+            cfg = get_db_config()
+            return True, f"Connected successfully to MySQL Server ({cfg['host']}:{cfg['port']})."
         finally:
             cursor.close()
             conn.close()
