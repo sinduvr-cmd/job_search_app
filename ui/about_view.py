@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# pyrefly: ignore [missing-import]
 import streamlit as st
 from services.jobs_api import GEOGRAPHIC_COVERAGE, PROVIDER_NAME
 
@@ -35,7 +36,7 @@ def render_about_view() -> None:
             #### Modular Structure
             ```
             job_search_app/
-            ├── app.py                     # Main Streamlit coordinator and state router
+            ├── job_search.py              # Main Streamlit coordinator and state router
             ├── services/
             │   ├── jobs_api.py            # REST client with HTML cleaning and pagination
             │   ├── ranking.py             # Deterministic 80/20 scoring engine

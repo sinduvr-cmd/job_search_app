@@ -1,5 +1,6 @@
 """Tests for deterministic 80/20 ranking, blank inputs, and remote filtering."""
 
+# pyrefly: ignore [missing-import]
 import pytest
 from datetime import date
 from services.ranking import evaluate_job, rank_jobs

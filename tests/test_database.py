@@ -1,6 +1,7 @@
 """Tests for transactional database persistence, rollbacks, and profile scoping."""
 
 from unittest.mock import MagicMock, patch
+# pyrefly: ignore [missing-import]
 import pytest
 from database.connection import test_db_connection as check_db_connection
 from database.repository import (

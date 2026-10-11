@@ -58,7 +58,7 @@ Designed for student academic demonstrations, this application normalizes incomi
 
 ```
 job_search_app/
-├── app.py                     # Main Streamlit coordinator and state router
+├── job_search.py              # Main Streamlit coordinator and state router
 ├── services/
 │   ├── __init__.py
 │   ├── jobs_api.py            # Arbeitnow REST client, pagination, HTML sanitizer
@@ -278,7 +278,7 @@ DB_PASSWORD=your_actual_mysql_password
 
 ### 8. Launch the Streamlit App
 ```powershell
-streamlit run app.py
+streamlit run job_search.py
 ```
 Your default browser will open automatically at `http://localhost:8501`.
 
