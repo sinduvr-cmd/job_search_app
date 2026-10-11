@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 import mysql.connector
 from mysql.connector import errorcode
 
-# Load environment variables from .env file in project directory
-load_dotenv(override=True)
+# Load environment variables from .env file in project directory if not already set
+load_dotenv(override=False)
 
 
 def get_env_or_secret(key: str, default: str = "") -> str:
