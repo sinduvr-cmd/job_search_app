@@ -15,7 +15,9 @@ load_dotenv(override=True)
 
 def get_db_config(database: str | None = None) -> dict[str, Any]:
     """Retrieve database connection parameters from environment variables."""
-    # If DB_NAME not explicitly provided, fall back to environment variable or standard default
+    # Reload environment variables from .env dynamically on each config request
+    load_dotenv(override=True)
+
     default_db = os.getenv("DB_NAME", "job_recommendation_db")
     target_db = database if database is not None else default_db
     
@@ -41,7 +43,15 @@ def get_db_config(database: str | None = None) -> dict[str, Any]:
 def get_db_connection(database: str | None = None) -> mysql.connector.MySQLConnection:
     """Create and return a new MySQL connection. Caller is responsible for closing."""
     config = get_db_config(database=database)
-    return mysql.connector.connect(**config)
+    try:
+        return mysql.connector.connect(**config)
+    except mysql.connector.Error as exc:
+        # If localhost fails with CR_CONN_HOST_ERROR (common Windows IPv6 ::1 issue), try 127.0.0.1
+        if exc.errno in (errorcode.CR_CONN_HOST_ERROR, 2003) and config.get("host") == "localhost":
+            fallback_config = dict(config)
+            fallback_config["host"] = "127.0.0.1"
+            return mysql.connector.connect(**fallback_config)
+        raise
 
 
 @contextmanager
